@@ -351,8 +351,19 @@ public:
 	{
 		// Temporarily freeze UART interrupts
 		CriticalSectionIrq<UsartIrqLock> lock;
-		// Take char or -1 if empty
-		return m_BufIn.Get();
+		// Take queued char first.
+		int ch = m_BufIn.Get();
+		if (ch >= 0)
+			return ch;
+
+		// If a byte is already waiting in the hardware register, consume it
+		// directly instead of relying on the ISR to shuttle it through the FIFO.
+		// This avoids starving the RX path when the caller polls GetChar() in a
+		// tight loop and the IRQ has not yet drained USART_DR.
+		if (UsartHwInstance::GetCommStatus() & USART_SR_RXNE)
+			return (char)UsartHwInstance::GetByte();
+
+		return -1;
 	}
 
 	//! Bytes waiting to be read
